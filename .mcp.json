@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "rust-docs": {
+      "command": "node",
+      "args": ["/home/kkazuki/10.git/mcp-rust-docs/index.js"]
+    }
+  }
+}
+
