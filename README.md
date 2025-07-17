@@ -4,6 +4,14 @@
 
 see: https://github.com/kazukingh01/kkenv/blob/8ea7a6b7ffee064498d0df54f1849b1b75828157/ubuntu/README.md#server-basic-setup
 
+### Rust
+
+```bash
+sudo apt update
+sudo apt install -y build-essential libssl-dev pkg-config
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
 ### Database
 
 ##### MongoDB Install
@@ -43,11 +51,11 @@ python -c "import requests, json; resp = requests.post('https://api.hyperliquid.
 ```bash
 cargo clean --package kkcrypto
 cargo build
-./target/debug/bybit       --raw-freq 100 --spot    --update --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT 
-./target/debug/bybit       --raw-freq 100 --linear  --update --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT 
-./target/debug/bybit       --raw-freq 100 --inverse --update --symbols BTCUSD,ETHUSD,XRPUSD,SOLUSD             
-./target/debug/binance     --raw-freq 100 --spot    --update --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT 
-./target/debug/binance     --raw-freq 100 --linear  --update --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT 
-./target/debug/binance     --raw-freq 100 --inverse --update --symbols BTCUSD_PERP,ETHUSD_PERP,XRPUSD_PERP,BNBUSD_PERP,SOLUSD_PERP 
-./target/debug/hyperliquid --raw-freq 100 --linear  --update --symbols BTC,ETH,XRP,BNB,SOL,HYPE 
+./target/debug/bybit       --raw-freq 100 --spot    --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
+./target/debug/bybit       --raw-freq 100 --linear  --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
+./target/debug/bybit       --raw-freq 100 --inverse --symbols BTCUSD,ETHUSD,XRPUSD,SOLUSD             # --update
+./target/debug/binance     --raw-freq 100 --spot    --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
+./target/debug/binance     --raw-freq 100 --linear  --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
+./target/debug/binance     --raw-freq 100 --inverse --symbols BTCUSD_PERP,ETHUSD_PERP,XRPUSD_PERP,BNBUSD_PERP,SOLUSD_PERP # --update
+./target/debug/hyperliquid --raw-freq 100 --linear  --symbols BTC,ETH,XRP,BNB,SOL,HYPE # --update
 ```
