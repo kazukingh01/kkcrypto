@@ -7,12 +7,12 @@ cd "$(dirname "$0")"
 
 # コマンドライン引数の処理
 UPDATE_FLAG=""
-DELETE_MODE=false
+KILL_MODE=false
 
 if [[ "$1" == "--update" ]]; then
     UPDATE_FLAG="--update"
-elif [[ "$1" == "--delete" ]]; then
-    DELETE_MODE=true
+elif [[ "$1" == "--kill" ]]; then
+    KILL_MODE=true
 fi
 
 # ログファイル
@@ -75,8 +75,8 @@ for process_def in "${PROCESSES[@]}"; do
 done
 rotate_log "$MONITOR_LOG" 10
 
-# --delete モードの処理
-if [[ "$DELETE_MODE" == "true" ]]; then
+# --kill モードの処理
+if [[ "$KILL_MODE" == "true" ]]; then
     echo "Stopping all processes..."
     for process_def in "${PROCESSES[@]}"; do
         IFS=':' read -r name pidfile command <<< "$process_def"
