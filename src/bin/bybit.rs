@@ -19,7 +19,7 @@ struct Args {
     #[arg(short, long, required = true)]
     symbols: String,
 
-    /// Database URL (or use DATABASE_URL env var)
+    /// Database URL (or use MONGODB_URL env var)
     #[arg(short, long)]
     database_url: Option<String>,
 
@@ -38,6 +38,10 @@ struct Args {
     /// Use inverse futures market
     #[arg(long)]
     inverse: bool,
+
+    /// Raw message print frequency (default: 100, minimum: 2)
+    #[arg(long, default_value = "100", value_parser = clap::value_parser!(u32).range(2..))]
+    raw_freq: u32,
 }
 
 #[tokio::main]
@@ -96,49 +100,37 @@ async fn main() -> Result<()> {
         // Get database URL
         let database_url = args
             .database_url
-            .or_else(|| env::var("DATABASE_URL").ok())
-            .expect("DATABASE_URL must be set when using --update");
+            .or_else(|| env::var("MONGODB_URL").ok())
+            .expect("MONGODB_URL must be set when using --update");
 
-        // Initialize database
-        let db = Database::new(&database_url).await?;
-        db.create_tables().await?;
-        info!("Database initialized");
-        Some(db)
+        // Initialize database with update flag
+        Database::new(&database_url, true).await?
     } else {
-        None
+        // Initialize dummy database for printing only
+        Database::new("", false).await?
     };
 
     // Start database writer
     tokio::spawn(async move {
         while let Some(candle) = candle_rx.recv().await {
             println!(
-                "[BYBIT-CANDLE] {} @ {} | Ask: O:{} H:{} L:{} C:{} V:{:.4} VWAP:{} Cnt:{} | Bid: O:{} H:{} L:{} C:{} V:{:.4} VWAP:{} Cnt:{}",
+                "[BYBIT-CANDLE] {} @ {} | Ask: Price:{} V:{:.4} Cnt:{} | Bid: Price:{} V:{:.4} Cnt:{}",
                 candle.symbol, candle.timestamp.format("%H:%M:%S"),
-                candle.ask_open.map_or("-".to_string(), |v| format!("{:.2}", v)),
-                candle.ask_high.map_or("-".to_string(), |v| format!("{:.2}", v)),
-                candle.ask_low.map_or("-".to_string(), |v| format!("{:.2}", v)),
-                candle.ask_close.map_or("-".to_string(), |v| format!("{:.2}", v)),
+                candle.ask_price.map_or("-".to_string(), |v| format!("{:.2}", v)),
                 candle.ask_volume,
-                candle.ask_vwap.map_or("-".to_string(), |v| format!("{:.2}", v)),
                 candle.ask_count,
-                candle.bid_open.map_or("-".to_string(), |v| format!("{:.2}", v)),
-                candle.bid_high.map_or("-".to_string(), |v| format!("{:.2}", v)),
-                candle.bid_low.map_or("-".to_string(), |v| format!("{:.2}", v)),
-                candle.bid_close.map_or("-".to_string(), |v| format!("{:.2}", v)),
+                candle.bid_price.map_or("-".to_string(), |v| format!("{:.2}", v)),
                 candle.bid_volume,
-                candle.bid_vwap.map_or("-".to_string(), |v| format!("{:.2}", v)),
                 candle.bid_count
             );
-            if let Some(ref db) = db {
-                if let Err(e) = db.insert_trade_candle(&candle).await {
-                    error!("Failed to insert trade candle: {}", e);
-                }
+            if let Err(e) = db.insert_trade_candle(&candle).await {
+                error!("Failed to insert trade candle: {}", e);
             }
         }
     });
 
     // Start Bybit client
-    let mut client = BybitClient::new(trade_tx);
+    let mut client = BybitClient::new(trade_tx, args.raw_freq);
     client.connect(market_type).await?;
     client.subscribe_trades(symbols).await?;
 

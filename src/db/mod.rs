@@ -1,93 +1,80 @@
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use mongodb::{Client, Database as MongoDatabase};
 use anyhow::Result;
 
 pub struct Database {
-    pub pool: PgPool,
+    _client: Option<Client>,  // 将来使用予定
+    database: Option<MongoDatabase>,
+    is_dummy: bool,
 }
 
 impl Database {
-    pub async fn new(database_url: &str) -> Result<Self> {
-        let pool = PgPoolOptions::new()
-            .max_connections(10)
-            .connect(database_url)
-            .await?;
+    pub async fn new(database_url: &str, update_flag: bool) -> Result<Self> {
+        use tracing::info;
         
-        Ok(Self { pool })
+        if update_flag {
+            info!("Connecting to MongoDB: {}", database_url);
+            let client = Client::with_uri_str(database_url).await?;
+            let database = client.database("trade");
+            
+            // 接続テストを実行
+            match database.run_command(mongodb::bson::doc! {"ping": 1}).await {
+                Ok(_) => {
+                    info!("Database initialized (real connection): database={}, status=connected", database.name());
+                }
+                Err(e) => {
+                    tracing::error!("Database ping failed: {}", e);
+                    return Err(e.into());
+                }
+            }
+            
+            Ok(Self { 
+                _client: Some(client), 
+                database: Some(database),
+                is_dummy: false,
+            })
+        } else {
+            // Dummy connection
+            info!("Database initialized (dummy connection)");
+            
+            Ok(Self {
+                _client: None,
+                database: None,
+                is_dummy: true,
+            })
+        }
     }
 
-    pub async fn create_tables(&self) -> Result<()> {
-        // Trade用1秒足データテーブル (ask/bid別)
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS trade_candles_1s (
-                id UUID PRIMARY KEY,
-                exchange VARCHAR(20) NOT NULL,
-                symbol VARCHAR(20) NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL,
-                period_seconds INTEGER NOT NULL,
-                ask_open DOUBLE PRECISION,
-                ask_high DOUBLE PRECISION,
-                ask_low DOUBLE PRECISION,
-                ask_close DOUBLE PRECISION,
-                ask_volume DOUBLE PRECISION NOT NULL DEFAULT 0,
-                ask_count INTEGER NOT NULL DEFAULT 0,
-                bid_open DOUBLE PRECISION,
-                bid_high DOUBLE PRECISION,
-                bid_low DOUBLE PRECISION,
-                bid_close DOUBLE PRECISION,
-                bid_volume DOUBLE PRECISION NOT NULL DEFAULT 0,
-                bid_count INTEGER NOT NULL DEFAULT 0,
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            );
-            "#
-        )
-        .execute(&self.pool)
-        .await?;
-
-        // インデックス
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_trade_candles_1s_exchange_symbol_timestamp 
-            ON trade_candles_1s(exchange, symbol, timestamp DESC);
-            "#
-        )
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
 
     pub async fn insert_trade_candle(&self, candle: &crate::models::trade_candle::TradeCandle) -> Result<()> {
-        sqlx::query(
-            r#"
-            INSERT INTO trade_candles_1s (
-                id, exchange, symbol, timestamp, period_seconds,
-                ask_open, ask_high, ask_low, ask_close, ask_volume, ask_count,
-                bid_open, bid_high, bid_low, bid_close, bid_volume, bid_count
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-            "#
-        )
-        .bind(&candle.id)
-        .bind(&candle.exchange)
-        .bind(&candle.symbol)
-        .bind(&candle.timestamp)
-        .bind(candle.period_seconds)
-        .bind(candle.ask_open)
-        .bind(candle.ask_high)
-        .bind(candle.ask_low)
-        .bind(candle.ask_close)
-        .bind(candle.ask_volume)
-        .bind(candle.ask_count)
-        .bind(candle.bid_open)
-        .bind(candle.bid_high)
-        .bind(candle.bid_low)
-        .bind(candle.bid_close)
-        .bind(candle.bid_volume)
-        .bind(candle.bid_count)
-        .execute(&self.pool)
-        .await?;
-
+        use mongodb::bson::Document;
+        
+        // Time Series形式に変換
+        let doc = candle.to_timeseries_document();
+        
+        // 常にJSONを出力
+        println!("[DB-INSERT] {}", serde_json::to_string(&doc)?); 
+        
+        // リアル接続がある場合のみ実際に挿入
+        if !self.is_dummy {
+            if let Some(ref database) = self.database {
+                let collection = database.collection::<Document>("candles_1s");
+                tracing::info!("Attempting to insert into MongoDB: database=trade, collection=candles_1s");
+                match collection.insert_one(doc).await {
+                    Ok(result) => {
+                        tracing::info!("Successfully inserted document with ID: {:?}", result.inserted_id);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to insert document: {}", e);
+                        return Err(e.into());
+                    }
+                }
+            } else {
+                tracing::warn!("Database connection is None, cannot insert");
+            }
+        } else {
+            tracing::debug!("Dummy mode, skipping actual database insert");
+        }
+        
         Ok(())
     }
 }

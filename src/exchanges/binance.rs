@@ -51,15 +51,17 @@ pub struct BinanceClient {
     trade_sender: mpsc::Sender<Trade>,
     trade_counter: AtomicU64,
     market_type: Option<MarketType>,
+    raw_freq: u32,
 }
 
 impl BinanceClient {
-    pub fn new(trade_sender: mpsc::Sender<Trade>) -> Self {
+    pub fn new(trade_sender: mpsc::Sender<Trade>, raw_freq: u32) -> Self {
         Self {
             ws_stream: None,
             trade_sender,
             trade_counter: AtomicU64::new(0),
             market_type: None,
+            raw_freq,
         }
     }
 
@@ -153,8 +155,8 @@ impl ExchangeClient for BinanceClient {
                 match msg {
                     Ok(msg) => {
                         let count = self.trade_counter.fetch_add(1, Ordering::Relaxed);
-                        // 1件目、101件目、201件目...を表示
-                        if count % 100 == 1 {
+                        // 1件目、(raw_freq+1)件目、(raw_freq*2+1)件目...を表示
+                        if count % (self.raw_freq as u64) == 1 {
                             println!("Raw message: {:?}", msg);
                         }
                         // カウンターを定期的にリセット (100万件毎)

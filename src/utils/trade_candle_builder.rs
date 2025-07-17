@@ -8,22 +8,14 @@ use tracing::error;
 #[derive(Debug)]
 struct TradeCandleBuffer {
     // Ask側データ (売り注文側の約定)
-    ask_open: Option<f64>,
-    ask_high: Option<f64>,
-    ask_low: Option<f64>,
-    ask_close: Option<f64>,
+    ask_price: Option<f64>,  // 加重平均価格 (VWAP)
     ask_volume: f64,
     ask_count: i32,
-    ask_vwap: Option<f64>,  // Volume Weighted Average Price
     
     // Bid側データ (買い注文側の約定)
-    bid_open: Option<f64>,
-    bid_high: Option<f64>,
-    bid_low: Option<f64>,
-    bid_close: Option<f64>,
+    bid_price: Option<f64>,  // 加重平均価格 (VWAP)
     bid_volume: f64,
     bid_count: i32,
-    bid_vwap: Option<f64>,  // Volume Weighted Average Price
     
     timestamp: DateTime<Utc>,
 }
@@ -31,20 +23,12 @@ struct TradeCandleBuffer {
 impl TradeCandleBuffer {
     fn new(timestamp: DateTime<Utc>) -> Self {
         Self {
-            ask_open: None,
-            ask_high: None,
-            ask_low: None,
-            ask_close: None,
+            ask_price: None,
             ask_volume: 0.0,
             ask_count: 0,
-            ask_vwap: None,
-            bid_open: None,
-            bid_high: None,
-            bid_low: None,
-            bid_close: None,
+            bid_price: None,
             bid_volume: 0.0,
             bid_count: 0,
-            bid_vwap: None,
             timestamp,
         }
     }
@@ -53,20 +37,12 @@ impl TradeCandleBuffer {
         match trade.side {
             Side::Sell => {
                 // Bid側 (売り約定)
-                if self.bid_open.is_none() {
-                    self.bid_open = Some(trade.price);
-                }
-                
-                self.bid_high = Some(self.bid_high.map_or(trade.price, |h| h.max(trade.price)));
-                self.bid_low = Some(self.bid_low.map_or(trade.price, |l| l.min(trade.price)));
-                self.bid_close = Some(trade.price);
-                
                 // 逐次加重平均計算
                 let new_total_volume = self.bid_volume + trade.quantity;
                 if new_total_volume > 0.0 {
-                    let current_vwap = self.bid_vwap.unwrap_or(0.0);
+                    let current_vwap = self.bid_price.unwrap_or(0.0);
                     let new_vwap = (current_vwap * self.bid_volume + trade.price * trade.quantity) / new_total_volume;
-                    self.bid_vwap = Some(new_vwap);
+                    self.bid_price = Some(new_vwap);
                 }
                 
                 self.bid_volume = new_total_volume;
@@ -74,20 +50,12 @@ impl TradeCandleBuffer {
             }
             Side::Buy => {
                 // Ask側 (買い約定)
-                if self.ask_open.is_none() {
-                    self.ask_open = Some(trade.price);
-                }
-                
-                self.ask_high = Some(self.ask_high.map_or(trade.price, |h| h.max(trade.price)));
-                self.ask_low = Some(self.ask_low.map_or(trade.price, |l| l.min(trade.price)));
-                self.ask_close = Some(trade.price);
-                
                 // 逐次加重平均計算
                 let new_total_volume = self.ask_volume + trade.quantity;
                 if new_total_volume > 0.0 {
-                    let current_vwap = self.ask_vwap.unwrap_or(0.0);
+                    let current_vwap = self.ask_price.unwrap_or(0.0);
                     let new_vwap = (current_vwap * self.ask_volume + trade.price * trade.quantity) / new_total_volume;
-                    self.ask_vwap = Some(new_vwap);
+                    self.ask_price = Some(new_vwap);
                 }
                 
                 self.ask_volume = new_total_volume;
@@ -104,20 +72,12 @@ impl TradeCandleBuffer {
             symbol,
             timestamp: self.timestamp,
             period_seconds: 1, // 1秒足
-            ask_open: self.ask_open,
-            ask_high: self.ask_high,
-            ask_low: self.ask_low,
-            ask_close: self.ask_close,
+            ask_price: self.ask_price,
             ask_volume: self.ask_volume,
             ask_count: self.ask_count,
-            ask_vwap: self.ask_vwap,
-            bid_open: self.bid_open,
-            bid_high: self.bid_high,
-            bid_low: self.bid_low,
-            bid_close: self.bid_close,
+            bid_price: self.bid_price,
             bid_volume: self.bid_volume,
             bid_count: self.bid_count,
-            bid_vwap: self.bid_vwap,
         }
     }
 }
@@ -141,6 +101,7 @@ impl TradeCandleBuilder {
     }
 
     pub async fn start(mut self) {
+        tracing::info!("TradeCandleBuilder started");
         let mut interval = interval(std::time::Duration::from_secs(1));
         
         loop {
@@ -185,6 +146,7 @@ impl TradeCandleBuilder {
             if buffer.timestamp <= one_second_ago {
                 let candle = buffer.to_trade_candle(exchange.clone(), market_type.clone(), symbol.clone());
                 
+                tracing::info!("Sending candle: {} {} @ {}", exchange, symbol, buffer.timestamp.format("%H:%M:%S"));
                 if let Err(e) = self.candle_sender.send(candle).await {
                     error!("Failed to send trade candle: {}", e);
                 }

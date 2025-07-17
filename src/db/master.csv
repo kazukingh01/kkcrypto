@@ -1,0 +1,148 @@
+symbol_id,symbol_name,exchange,type,base,currency,is_active,explain
+0,BTC_JPY,bitflyer,spot,BTC,JPY,1,
+1,XRP_JPY,bitflyer,spot,XRP,JPY,1,
+2,ETH_JPY,bitflyer,spot,ETH,JPY,1,
+3,XLM_JPY,bitflyer,spot,XLM,JPY,0,
+4,MONA_JPY,bitflyer,spot,MONA,JPY,0,
+5,FX_BTC_JPY,bitflyer,linear,BTC_FX,JPY,1,
+6,BTCUSDT,bybit,spot,BTC,USDT,1,
+7,ETHUSDC,bybit,spot,ETH,USDC,1,
+8,BTCUSDC,bybit,spot,BTC,USDC,1,
+9,ETHUSDT,bybit,spot,ETH,USDT,1,
+10,XRPUSDT,bybit,spot,XRP,USDT,1,
+11,BTCUSDT,bybit,linear,BTC,USDT,1,
+12,ETHUSDT,bybit,linear,ETH,USDT,1,
+13,XRPUSDT,bybit,linear,XRP,USDT,1,
+14,BTCUSD,bybit,inverse,BTC,USD,1,
+15,ETHUSD,bybit,inverse,ETH,USD,1,
+16,XRPUSD,bybit,inverse,XRP,USD,1,
+17,USDJPY.FOREX,eodhd,fx,USD,JPY,1,
+18,EURUSD.FOREX,eodhd,fx,EUR,USD,1,
+19,GBPUSD.FOREX,eodhd,fx,GBP,USD,1,
+20,USDCHF.FOREX,eodhd,fx,USD,CHF,1,
+21,AUDUSD.FOREX,eodhd,fx,AUD,USD,1,
+22,USDCAD.FOREX,eodhd,fx,USD,CAD,1,
+23,NZDUSD.FOREX,eodhd,fx,NZD,USD,1,
+24,EURGBP.FOREX,eodhd,fx,EUR,GBP,1,
+25,EURJPY.FOREX,eodhd,fx,EUR,JPY,1,
+26,EURCHF.FOREX,eodhd,fx,EUR,CHF,1,
+27,XAUUSD.FOREX,eodhd,fx,XAU,USD,1,
+28,GSPC.INDX,eodhd,index,GSPC,USD,1,S&P 500
+29,DJI.INDX,eodhd,index,DJI,USD,1,Dow Jones
+30,IXIC.INDX,eodhd,index,IXIC,USD,1,NASDAQ Index
+31,BUK100P.INDX,eodhd,index,BUK100P,GBP,1,Cboe UK 100
+32,VIX.INDX,eodhd,index,VIX,USD,1,CBOE Volatility Index
+33,GDAXI.INDX,eodhd,index,GDAXI,EUR,1,Germany 40 index
+34,FCHI.INDX,eodhd,index,FCHI,EUR,1,France 40 index
+35,STOXX50E.INDX,eodhd,index,STOXX50E,EUR,1,Europe 50 index
+36,N100.INDX,eodhd,index,N100,EUR,1,Euronext 100 Index
+37,BFX.INDX,eodhd,index,BFX,EUR,1,Brussels 20 Index
+38,IMOEX.INDX,eodhd,index,IMOEX,RUB,0,Russia 50 Index
+39,N225.INDX,eodhd,index,N225,JPY,1,Nikkei 225
+40,HSI.INDX,eodhd,index,HSI,HKD,1,Hong Kong 40 Index
+41,SSEC.INDX,eodhd,index,SSEC,,0,
+42,AORD.INDX,eodhd,index,AORD,AUD,1,Australlia 500 index
+43,BSESN.INDX,eodhd,index,BSESN,INR,1,india 30 index
+44,JKSE.INDX,eodhd,index,JKSE,IDR,1,Jakarta all Index
+45,NZ50.INDX,eodhd,index,NZ50,NZD,1,New Zealand 50 Index
+46,KS11.INDX,eodhd,index,KS11,KRW,1,Koria Index
+47,TWII.INDX,eodhd,index,TWII,TWD,1,Taiwan Index
+48,GSPTSE.INDX,eodhd,index,GSPTSE,CAD,1,Canada 250 Index
+49,BVSP.INDX,eodhd,index,BVSP,BRL,1,Brazil index
+50,MXX.INDX,eodhd,index,GSPTSE,MXN,1,Mexico Index
+51,SPIPSA.INDX,eodhd,index,SPIPSA,CLP,0,Chile Index
+52,MERV.INDX,eodhd,index,MERV,ARS,0,Argentina  Index
+53,TA125.INDX,eodhd,index,TA125,ILS,0,Israel 125 Index
+54,USA500IDXUSD,dukascopy,index,GSPC,USD,1,S&P 500
+55,VOLIDXUSD,dukascopy,index,VIX,USD,1,CBOE Volatility Index
+56,CHIIDXUSD,dukascopy,index,XIN9,CNY,1,China A50 Index
+57,HKGIDXHKD,dukascopy,index,HSI,HKD,1,Hong Kong 40 Index
+58,JPNIDXJPY,dukascopy,index,N225,JPY,1,Nikkei 225
+59,AUSIDXAUD,dukascopy,index,AXJO,AUD,1,Australlia 200 index
+60,INDIDXUSD,dukascopy,index,NSEI,INR,1,India 50 index
+61,SGDIDXSGD,dukascopy,index,SSGF3,SGD,1,Singapore Blue Chip
+62,FRAIDXEUR,dukascopy,index,FCHI,EUR,1,France 40 index
+63,DEUIDXEUR,dukascopy,index,GDAXI,EUR,1,Germany 40 index
+64,EUSIDXEUR,dukascopy,index,STOXX50E,EUR,1,Europe 50 index
+65,GBRIDXGBP,dukascopy,index,BUK100P,GBP,1,UK 100 index
+66,ESPIDXEUR,dukascopy,index,IBEX,EUR,1,Spain 35 index
+67,CHEIDXCHF,dukascopy,index,SPI20,CHF,1,Switzerland 20 index
+68,NLDIDXEUR,dukascopy,index,NL25,EUR,1,Netherlands 25 index
+69,PLNIDXPLN,dukascopy,index,WIG20,PLN,1,Poland 20 index
+70,SOAIDXZAR,dukascopy,index,SA40,ZAR,1,South Africa 40 index
+71,USDJPY,dukascopy,fx,USD,JPY,1,
+72,EURUSD,dukascopy,fx,EUR,USD,1,
+73,GBPUSD,dukascopy,fx,GBP,USD,1,
+74,USDCHF,dukascopy,fx,USD,CHF,1,
+75,AUDUSD,dukascopy,fx,AUD,USD,1,
+76,USDCAD,dukascopy,fx,USD,CAD,1,
+77,NZDUSD,dukascopy,fx,NZD,USD,1,
+78,EURGBP,dukascopy,fx,EUR,GBP,1,
+79,EURJPY,dukascopy,fx,EUR,JPY,1,
+80,EURCHF,dukascopy,fx,EUR,CHF,1,
+81,XAUUSD,dukascopy,fx,XAU,USD,1,
+82,XAGUSD,dukascopy,fx,XAG,USD,1,
+83,USA500.IDX/USD,dukascopyapi,index,GSPC,USD,1,S&P 500
+84,VOL.IDX/USD,dukascopyapi,index,VIX,USD,1,CBOE Volatility Index
+85,CHI.IDX/USD,dukascopyapi,index,XIN9,CNY,1,China A50 Index
+86,HKG.IDX/HKD,dukascopyapi,index,HSI,HKD,1,Hong Kong 40 Index
+87,JPN.IDX/JPY,dukascopyapi,index,N225,JPY,1,Nikkei 225
+88,AUS.IDX/AUD,dukascopyapi,index,AXJO,AUD,1,Australlia 200 index
+89,IND.IDX/USD,dukascopyapi,index,NSEI,INR,1,India 50 index
+90,SGD.IDX/SGD,dukascopyapi,index,SSGF3,SGD,1,Singapore Blue Chip
+91,FRA.IDX/EUR,dukascopyapi,index,FCHI,EUR,1,France 40 index
+92,DEU.IDX/EUR,dukascopyapi,index,GDAXI,EUR,1,Germany 40 index
+93,EUS.IDX/EUR,dukascopyapi,index,STOXX50E,EUR,1,Europe 50 index
+94,GBR.IDX/GBP,dukascopyapi,index,BUK100P,GBP,1,UK 100 index
+95,ESP.IDX/EUR,dukascopyapi,index,IBEX,EUR,1,Spain 35 index
+96,CHE.IDX/CHF,dukascopyapi,index,SPI20,CHF,1,Switzerland 20 index
+97,NLD.IDX/EUR,dukascopyapi,index,NL25,EUR,1,Netherlands 25 index
+98,PLN.IDX/PLN,dukascopyapi,index,WIG20,PLN,1,Poland 20 index
+99,SOA.IDX/ZAR,dukascopyapi,index,SA40,ZAR,1,South Africa 40 index
+100,USD/JPY,dukascopyapi,fx,USD,JPY,1,
+101,EUR/USD,dukascopyapi,fx,EUR,USD,1,
+102,GBP/USD,dukascopyapi,fx,GBP,USD,1,
+103,USD/CHF,dukascopyapi,fx,USD,CHF,1,
+104,AUD/USD,dukascopyapi,fx,AUD,USD,1,
+105,USD/CAD,dukascopyapi,fx,USD,CAD,1,
+106,NZD/USD,dukascopyapi,fx,NZD,USD,1,
+107,EUR/GBP,dukascopyapi,fx,EUR,GBP,1,
+108,EUR/JPY,dukascopyapi,fx,EUR,JPY,1,
+109,EUR/CHF,dukascopyapi,fx,EUR,CHF,1,
+110,XAU/USD,dukascopyapi,fx,XAU,USD,1,
+111,XAG/USD,dukascopyapi,fx,XAG,USD,1,
+112,AXJO.INDX,eodhd,index,AXJO,AUD,1,S&P/ASX 200
+113,NSEI.INDX,eodhd,index,NSEI,INR,1,Nifty 50
+114,IBEX.INDX,eodhd,index,IBEX,EUR,1,IBEX 35 Index
+115,SPI20.INDX,eodhd,index,SPI20,CHF,0,SPI 20 PR (Not available)
+116,AEX.INDX,eodhd,index,NL25,EUR,1,AEX Amsterdam Index
+117,WIG20.INDX,eodhd,index,WIG20,PLN,0,Poland 20 index (Not available)
+118,XAGUSD.FOREX,eodhd,fx,XAG,USD,1,
+119,BTCUSDT,binance,spot,BTC,USDT,1,
+120,ETHUSDC,binance,spot,ETH,USDC,1,
+121,BTCUSDC,binance,spot,BTC,USDC,1,
+122,ETHUSDT,binance,spot,ETH,USDT,1,
+123,XRPUSDT,binance,spot,XRP,USDT,1,
+124,BTCUSDT,binance,linear,BTC,USDT,1,
+125,ETHUSDT,binance,linear,ETH,USDT,1,
+126,XRPUSDT,binance,linear,XRP,USDT,1,
+127,BTCUSD_PERP,binance,inverse,BTC,USD,1,
+128,ETHUSD_PERP,binance,inverse,ETH,USD,1,
+129,XRPUSD_PERP,binance,inverse,XRP,USD,1,
+130,SOLUSDT,binance,spot,SOL,USDT,1,
+131,BNBUSDT,binance,spot,BNB,USDT,1,
+132,SOLUSDT,binance,linear,SOL,USDT,1,
+133,BNBUSDT,binance,linear,BNB,USDT,1,
+134,SOLUSD_PERP,binance,inverse,SOL,USD,1,
+135,BNBUSD_PERP,binance,inverse,BNB,USD,1,
+136,SOLUSDT,bybit,spot,SOL,USDT,1,
+137,SOLUSDT,bybit,linear,SOL,USDT,1,
+138,SOLUSD,bybit,inverse,SOL,USD,1,
+139,BNBUSDT,bybit,spot,BNB,USDT,1,
+140,BNBUSDT,bybit,linear,BNB,USDT,1,
+141,BTC,hyperliquid,linear,BTC,USDC,1,
+142,ETH,hyperliquid,linear,ETH,USDC,1,
+143,SOL,hyperliquid,linear,SOL,USDC,1,
+144,XRP,hyperliquid,linear,XRP,USDC,1,
+145,BNB,hyperliquid,linear,BNB,USDC,1,
+146,HYPE,hyperliquid,linear,HYPE,USDC,1,
