@@ -81,14 +81,17 @@ for process_def in "${PROCESSES[@]}"; do
         # プロセスが実行中かチェック
         if kill -0 "$pid" 2>/dev/null; then
             # プロセスは生きている
+            echo "Process $name (PID: $pid) is running"
             continue
         else
             # プロセスが死んでいる
+            echo "Process $name (PID: $pid) is dead. Restarting..."
             log_msg "Process $name (PID: $pid) is dead. Restarting..."
             restart_process "$name" "$pidfile" "$command"
         fi
     else
         # PIDファイルが存在しない（初回起動または異常終了）
+        echo "PIDfile for $name not found. Starting..."
         log_msg "PIDfile for $name not found. Starting..."
         restart_process "$name" "$pidfile" "$command"
     fi
