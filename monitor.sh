@@ -13,7 +13,7 @@ fi
 
 # ログファイル
 MONITOR_LOG="logs/monitor.log"
-mkdir -p logs
+mkdir -p logs pids
 
 log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$MONITOR_LOG"
