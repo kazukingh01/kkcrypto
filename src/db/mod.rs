@@ -77,7 +77,7 @@ impl Database {
         if !self.is_dummy {
             if let Some(ref database) = self.database {
                 let collection = database.collection::<Document>(collection_name);
-                tracing::info!("Attempting to insert into MongoDB: database=trade, collection={}", collection_name);
+                tracing::debug!("Attempting to insert into MongoDB: database=trade, collection={}", collection_name);
                 match collection.insert_one(doc).await {
                     Ok(result) => {
                         tracing::info!("Successfully inserted document with ID: {:?}", result.inserted_id);
