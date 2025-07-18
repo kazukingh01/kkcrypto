@@ -157,7 +157,7 @@ impl ExchangeClient for BybitClient {
                         let count = self.trade_counter.fetch_add(1, Ordering::Relaxed);
                         // 1件目、(raw_freq+1)件目、(raw_freq*2+1)件目...を表示
                         if count % (self.raw_freq as u64) == 1 {
-                            println!("Raw message: {:?}", msg);
+                            tracing::debug!("Raw message: {:?}", msg);
                         }
                         // カウンターを定期的にリセット (100万件毎)
                         if count >= 1_000_000 {

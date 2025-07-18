@@ -71,7 +71,7 @@ impl Database {
         };
         
         // 常にJSONを出力
-        println!("[DB-INSERT-{}] {}", collection_name, serde_json::to_string(&doc)?); 
+        tracing::debug!("[DB-INSERT-{}] {}", collection_name, serde_json::to_string(&doc)?); 
         
         // リアル接続がある場合のみ実際に挿入
         if !self.is_dummy {

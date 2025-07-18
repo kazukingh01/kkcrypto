@@ -22,6 +22,8 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 dotenv = "0.15"
 clap = { version = "4.5", features = ["derive"] }
 lazy_static = "1.5"
+polars = { version = "0.36", features = ["lazy", "temporal", "strings"] }
+futures = "0.3"
 
 [[bin]]
 name = "bybit"
@@ -34,3 +36,7 @@ path = "src/bin/binance.rs"
 [[bin]]
 name = "hyperliquid"
 path = "src/bin/hyperliquid.rs"
+
+[[bin]]
+name = "correlation"
+path = "src/bin/correlation.rs"

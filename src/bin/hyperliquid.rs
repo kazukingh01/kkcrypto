@@ -154,8 +154,8 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         while let Some(candle) = candle_rx.recv().await {
             println!(
-                "[HYPERLIQUID-CANDLE] {} @ {} | Ask: Price:{} V:{:.4} Cnt:{} | Bid: Price:{} V:{:.4} Cnt:{}",
-                candle.symbol, candle.timestamp.format("%H:%M:%S"),
+                "[HYPERLIQUID-CANDLE {}s] {} @ {} | Ask: Price:{} V:{:.4} Cnt:{} | Bid: Price:{} V:{:.4} Cnt:{}",
+                candle.period_seconds, candle.symbol, candle.timestamp.format("%H:%M:%S"),
                 candle.ask_price.map_or("-".to_string(), |v| format!("{:.2}", v)),
                 candle.ask_volume,
                 candle.ask_count,

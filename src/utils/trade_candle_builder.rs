@@ -1,5 +1,5 @@
 use crate::models::{trade::{Trade, Side}, trade_candle::TradeCandle, market_type::MarketType};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::time::interval;
@@ -65,12 +65,17 @@ impl TradeCandleBuffer {
     }
 
     fn to_trade_candle(&self, exchange: String, market_type: MarketType, symbol: String, period_seconds: i32) -> TradeCandle {
+        // タイムスタンプを時間枠の開始時刻に正規化
+        let seconds_since_epoch = self.timestamp.timestamp();
+        let candle_start = (seconds_since_epoch / period_seconds as i64) * period_seconds as i64;
+        let normalized_timestamp = DateTime::from_timestamp(candle_start, 0).unwrap();
+        
         TradeCandle {
             id: uuid::Uuid::new_v4(),
             exchange,
             market_type,
             symbol,
-            timestamp: self.timestamp,
+            timestamp: normalized_timestamp,
             period_seconds,
             ask_price: self.ask_price,
             ask_volume: self.ask_volume,
@@ -114,9 +119,12 @@ impl TradeCandleBuilder {
             let sender = trigger_sender.clone();
             tokio::spawn(async move {
                 let mut interval = interval(std::time::Duration::from_secs(timeframe as u64));
+                tracing::debug!("Timer task started for {}s timeframe", timeframe);
                 loop {
                     interval.tick().await;
+                    tracing::debug!("Timer tick for {}s timeframe", timeframe);
                     if sender.send(timeframe).await.is_err() {
+                        tracing::error!("Timer task for {}s timeframe failed to send", timeframe);
                         break;
                     }
                 }
@@ -129,6 +137,7 @@ impl TradeCandleBuilder {
                     self.process_trade(trade);
                 }
                 Some(timeframe) = trigger_receiver.recv() => {
+                    tracing::debug!("Received timer trigger for {}s timeframe", timeframe);
                     self.flush_candles_for_timeframe(timeframe).await;
                 }
             }
@@ -138,7 +147,6 @@ impl TradeCandleBuilder {
     fn process_trade(&mut self, trade: Trade) {
         // 各時間枠に対して処理
         for &timeframe in &self.timeframes {
-            let timestamp = self.get_candle_timestamp(&trade.timestamp, timeframe);
             let key = (
                 trade.exchange.clone(), 
                 trade.market_type.clone(), 
@@ -146,19 +154,16 @@ impl TradeCandleBuilder {
                 timeframe
             );
             
+            // バッファが存在しない場合は作成、存在する場合は更新のみ
             self.buffers
-                .entry(key)
+                .entry(key.clone())
                 .and_modify(|buffer| {
-                    if buffer.timestamp == timestamp {
-                        buffer.update(&trade);
-                    } else {
-                        // 新しい時間枠になったので、新しいバッファを作成
-                        *buffer = TradeCandleBuffer::new(timestamp);
-                        buffer.update(&trade);
-                    }
+                    buffer.update(&trade);
                 })
                 .or_insert_with(|| {
-                    let mut buffer = TradeCandleBuffer::new(timestamp);
+                    tracing::debug!("Creating new buffer for {} {} {}s", 
+                        trade.exchange, trade.symbol, timeframe);
+                    let mut buffer = TradeCandleBuffer::new(trade.timestamp);
                     buffer.update(&trade);
                     buffer
                 });
@@ -173,28 +178,59 @@ impl TradeCandleBuilder {
 
     async fn flush_candles_for_timeframe(&mut self, timeframe: u32) {
         let current_time = Utc::now();
-        let threshold = current_time - Duration::seconds(timeframe as i64);
+        let candle_timestamp = self.get_candle_timestamp(&current_time, timeframe);
+        
+        tracing::debug!("Flushing {}s candles at {} (candle_timestamp: {})", 
+            timeframe, 
+            current_time.format("%H:%M:%S.%3f"),
+            candle_timestamp.format("%H:%M:%S"));
+        
+        // 該当する時間枠のバッファを収集して送信
+        let mut buffers_to_remove = Vec::new();
+        let mut found_buffers = 0;
+        let mut sent_candles = 0;
         
         for ((exchange, market_type, symbol, tf), buffer) in &self.buffers {
-            if *tf == timeframe && buffer.timestamp <= threshold {
-                let candle = buffer.to_trade_candle(
-                    exchange.clone(), 
-                    market_type.clone(), 
-                    symbol.clone(),
-                    timeframe as i32
-                );
+            if *tf == timeframe {
+                found_buffers += 1;
+                tracing::debug!("Found buffer for {}s: {} {} (ask_cnt:{}, bid_cnt:{})", 
+                    timeframe, exchange, symbol, buffer.ask_count, buffer.bid_count);
                 
-                tracing::info!("Sending {}s candle: {} {} @ {}", 
-                    timeframe, exchange, symbol, buffer.timestamp.format("%H:%M:%S"));
-                if let Err(e) = self.candle_sender.send(candle).await {
-                    error!("Failed to send trade candle: {}", e);
+                // バッファにデータがある場合のみ送信
+                if buffer.ask_count > 0 || buffer.bid_count > 0 {
+                    let candle = buffer.to_trade_candle(
+                        exchange.clone(), 
+                        market_type.clone(), 
+                        symbol.clone(),
+                        timeframe as i32
+                    );
+                    
+                    tracing::debug!("Sending {}s candle: {} {} @ {} (ask_cnt:{}, bid_cnt:{})", 
+                        timeframe, exchange, symbol, 
+                        candle_timestamp.format("%H:%M:%S"),
+                        buffer.ask_count, buffer.bid_count);
+                    
+                    if let Err(e) = self.candle_sender.send(candle).await {
+                        error!("Failed to send trade candle: {}", e);
+                    } else {
+                        sent_candles += 1;
+                    }
+                } else {
+                    tracing::debug!("Skipping empty buffer for {}s: {} {}", 
+                        timeframe, exchange, symbol);
                 }
+                
+                // このバッファを削除対象に追加
+                buffers_to_remove.push((exchange.clone(), market_type.clone(), symbol.clone(), *tf));
             }
         }
         
-        // 古いバッファを削除
-        self.buffers.retain(|(_, _, _, tf), buffer| {
-            *tf != timeframe || buffer.timestamp > threshold
-        });
+        tracing::debug!("Flush {}s summary: found {} buffers, sent {} candles, removing {} buffers", 
+            timeframe, found_buffers, sent_candles, buffers_to_remove.len());
+        
+        // 送信したバッファをクリア
+        for key in &buffers_to_remove {
+            self.buffers.remove(key);
+        }
     }
 }
