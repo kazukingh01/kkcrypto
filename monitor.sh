@@ -23,23 +23,6 @@ log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$MONITOR_LOG"
 }
 
-# ログローテーション関数
-rotate_log() {
-    local logfile="$1"
-    local max_size_mb="$2"  # MB単位
-    
-    if [[ -f "$logfile" ]]; then
-        # ファイルサイズをMB単位で取得
-        local size_mb=$(du -m "$logfile" | cut -f1)
-        
-        if (( size_mb > max_size_mb )); then
-            # ファイルの最後の1000行のみ残す
-            tail -n 1000 "$logfile" > "${logfile}.tmp"
-            mv "${logfile}.tmp" "$logfile"
-            log_msg "Rotated log: $logfile (was ${size_mb}MB, kept last 1000 lines)"
-        fi
-    fi
-}
 
 # プロセス定義 (name:pidfile:command)
 PROCESSES=(
@@ -68,12 +51,29 @@ restart_process() {
     log_msg "Restarted $name with PID $(cat $pidfile)"
 }
 
-# ログローテーション実行（50MB以上で実行）
-for process_def in "${PROCESSES[@]}"; do
-    IFS=':' read -r name pidfile command <<< "$process_def"
-    rotate_log "logs/${name}.log" 50
-done
-rotate_log "$MONITOR_LOG" 10
+# ログローテーション実行
+cat > /tmp/kkcrypto_logrotate.conf << EOF
+$PWD/logs/*.log {
+    size 50M
+    rotate 5
+    compress
+    missingok
+    notifempty
+    copytruncate
+    su $(whoami) $(whoami)
+}
+$PWD/logs/monitor.log {
+    size 10M
+    rotate 3
+    compress
+    missingok
+    notifempty
+    copytruncate
+    su $(whoami) $(whoami)
+}
+EOF
+
+logrotate -s "$PWD/logs/logrotate.state" /tmp/kkcrypto_logrotate.conf
 
 # --kill モードの処理
 if [[ "$KILL_MODE" == "true" ]]; then

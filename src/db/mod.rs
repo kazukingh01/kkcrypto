@@ -51,14 +51,33 @@ impl Database {
         // Time Series形式に変換
         let doc = candle.to_timeseries_document();
         
+        // コレクション名を決定
+        let collection_name = match candle.period_seconds {
+            1 => "candles_1s",
+            5 => "candles_5s",
+            10 => "candles_10s",
+            30 => "candles_30s",
+            60 => "candles_1m",
+            300 => "candles_5m",
+            900 => "candles_15m",
+            1800 => "candles_30m",
+            3600 => "candles_1h",
+            7200 => "candles_2h",
+            14400 => "candles_4h",
+            86400 => "candles_1d",
+            _ => {
+                return Err(anyhow::anyhow!("Unsupported period: {} seconds", candle.period_seconds));
+            }
+        };
+        
         // 常にJSONを出力
-        println!("[DB-INSERT] {}", serde_json::to_string(&doc)?); 
+        println!("[DB-INSERT-{}] {}", collection_name, serde_json::to_string(&doc)?); 
         
         // リアル接続がある場合のみ実際に挿入
         if !self.is_dummy {
             if let Some(ref database) = self.database {
-                let collection = database.collection::<Document>("candles_1s");
-                tracing::info!("Attempting to insert into MongoDB: database=trade, collection=candles_1s");
+                let collection = database.collection::<Document>(collection_name);
+                tracing::info!("Attempting to insert into MongoDB: database=trade, collection={}", collection_name);
                 match collection.insert_one(doc).await {
                     Ok(result) => {
                         tracing::info!("Successfully inserted document with ID: {:?}", result.inserted_id);

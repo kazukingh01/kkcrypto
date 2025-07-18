@@ -51,11 +51,11 @@ python -c "import requests, json; resp = requests.post('https://api.hyperliquid.
 ```bash
 cargo clean --package kkcrypto
 cargo build
-./target/debug/bybit       --raw-freq 100 --spot    --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
-./target/debug/bybit       --raw-freq 100 --linear  --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
-./target/debug/bybit       --raw-freq 100 --inverse --symbols BTCUSD,ETHUSD,XRPUSD,SOLUSD             # --update
-./target/debug/binance     --raw-freq 100 --spot    --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
-./target/debug/binance     --raw-freq 100 --linear  --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
-./target/debug/binance     --raw-freq 100 --inverse --symbols BTCUSD_PERP,ETHUSD_PERP,XRPUSD_PERP,BNBUSD_PERP,SOLUSD_PERP # --update
+./target/debug/bybit       --raw-freq 100 --spot    -t 1,5 --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
+./target/debug/bybit       --raw-freq 100 --linear  -t 1,5 --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
+./target/debug/bybit       --raw-freq 100 --inverse -t 1,5 --symbols BTCUSD,ETHUSD,XRPUSD,SOLUSD             # --update
+./target/debug/binance     --raw-freq 100 --spot    -t 1,5 --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
+./target/debug/binance     --raw-freq 100 --linear  -t 1,5 --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT # --update
+./target/debug/binance     --raw-freq 100 --inverse -t 1,5 --symbols BTCUSD_PERP,ETHUSD_PERP,XRPUSD_PERP,BNBUSD_PERP,SOLUSD_PERP # --update
 ./target/debug/hyperliquid --raw-freq 100 --linear  --symbols BTC,ETH,XRP,BNB,SOL,HYPE # --update
 ```

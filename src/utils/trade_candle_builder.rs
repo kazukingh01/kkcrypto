@@ -1,5 +1,5 @@
 use crate::models::{trade::{Trade, Side}, trade_candle::TradeCandle, market_type::MarketType};
-use chrono::{DateTime, Duration, Timelike, Utc};
+use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::time::interval;
@@ -64,14 +64,14 @@ impl TradeCandleBuffer {
         }
     }
 
-    fn to_trade_candle(&self, exchange: String, market_type: MarketType, symbol: String) -> TradeCandle {
+    fn to_trade_candle(&self, exchange: String, market_type: MarketType, symbol: String, period_seconds: i32) -> TradeCandle {
         TradeCandle {
             id: uuid::Uuid::new_v4(),
             exchange,
             market_type,
             symbol,
             timestamp: self.timestamp,
-            period_seconds: 1, // 1秒足
+            period_seconds,
             ask_price: self.ask_price,
             ask_volume: self.ask_volume,
             ask_count: self.ask_count,
@@ -85,68 +85,107 @@ impl TradeCandleBuffer {
 pub struct TradeCandleBuilder {
     trade_receiver: mpsc::Receiver<Trade>,
     candle_sender: mpsc::Sender<TradeCandle>,
-    buffers: HashMap<(String, MarketType, String), TradeCandleBuffer>, // (exchange, market_type, symbol) -> buffer
+    timeframes: Vec<u32>, // 時間枠のリスト (秒単位)
+    buffers: HashMap<(String, MarketType, String, u32), TradeCandleBuffer>, // (exchange, market_type, symbol, timeframe) -> buffer
 }
 
 impl TradeCandleBuilder {
     pub fn new(
         trade_receiver: mpsc::Receiver<Trade>,
         candle_sender: mpsc::Sender<TradeCandle>,
+        timeframes: Vec<u32>,
     ) -> Self {
         Self {
             trade_receiver,
             candle_sender,
+            timeframes,
             buffers: HashMap::new(),
         }
     }
 
     pub async fn start(mut self) {
-        tracing::info!("TradeCandleBuilder started");
-        let mut interval = interval(std::time::Duration::from_secs(1));
+        tracing::info!("TradeCandleBuilder started with timeframes: {:?}", self.timeframes);
+        
+        // 各時間枠用のタスクを作成
+        let (trigger_sender, mut trigger_receiver) = mpsc::channel::<u32>(100);
+        
+        // 各時間枠に対してタイマータスクを起動
+        for &timeframe in &self.timeframes {
+            let sender = trigger_sender.clone();
+            tokio::spawn(async move {
+                let mut interval = interval(std::time::Duration::from_secs(timeframe as u64));
+                loop {
+                    interval.tick().await;
+                    if sender.send(timeframe).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
         
         loop {
             tokio::select! {
                 Some(trade) = self.trade_receiver.recv() => {
                     self.process_trade(trade);
                 }
-                _ = interval.tick() => {
-                    self.flush_candles().await;
+                Some(timeframe) = trigger_receiver.recv() => {
+                    self.flush_candles_for_timeframe(timeframe).await;
                 }
             }
         }
     }
 
     fn process_trade(&mut self, trade: Trade) {
-        let current_second = trade.timestamp.with_nanosecond(0).unwrap();
-        let key = (trade.exchange.clone(), trade.market_type.clone(), trade.symbol.clone());
-        
-        self.buffers
-            .entry(key)
-            .and_modify(|buffer| {
-                if buffer.timestamp == current_second {
+        // 各時間枠に対して処理
+        for &timeframe in &self.timeframes {
+            let timestamp = self.get_candle_timestamp(&trade.timestamp, timeframe);
+            let key = (
+                trade.exchange.clone(), 
+                trade.market_type.clone(), 
+                trade.symbol.clone(),
+                timeframe
+            );
+            
+            self.buffers
+                .entry(key)
+                .and_modify(|buffer| {
+                    if buffer.timestamp == timestamp {
+                        buffer.update(&trade);
+                    } else {
+                        // 新しい時間枠になったので、新しいバッファを作成
+                        *buffer = TradeCandleBuffer::new(timestamp);
+                        buffer.update(&trade);
+                    }
+                })
+                .or_insert_with(|| {
+                    let mut buffer = TradeCandleBuffer::new(timestamp);
                     buffer.update(&trade);
-                } else {
-                    // 新しい秒になったので、新しいバッファを作成
-                    *buffer = TradeCandleBuffer::new(current_second);
-                    buffer.update(&trade);
-                }
-            })
-            .or_insert_with(|| {
-                let mut buffer = TradeCandleBuffer::new(current_second);
-                buffer.update(&trade);
-                buffer
-            });
+                    buffer
+                });
+        }
     }
 
-    async fn flush_candles(&mut self) {
-        let current_time = Utc::now().with_nanosecond(0).unwrap();
-        let one_second_ago = current_time - Duration::seconds(1);
+    fn get_candle_timestamp(&self, timestamp: &DateTime<Utc>, timeframe_seconds: u32) -> DateTime<Utc> {
+        let seconds_since_epoch = timestamp.timestamp();
+        let candle_start = (seconds_since_epoch / timeframe_seconds as i64) * timeframe_seconds as i64;
+        DateTime::from_timestamp(candle_start, 0).unwrap()
+    }
+
+    async fn flush_candles_for_timeframe(&mut self, timeframe: u32) {
+        let current_time = Utc::now();
+        let threshold = current_time - Duration::seconds(timeframe as i64);
         
-        for ((exchange, market_type, symbol), buffer) in &self.buffers {
-            if buffer.timestamp <= one_second_ago {
-                let candle = buffer.to_trade_candle(exchange.clone(), market_type.clone(), symbol.clone());
+        for ((exchange, market_type, symbol, tf), buffer) in &self.buffers {
+            if *tf == timeframe && buffer.timestamp <= threshold {
+                let candle = buffer.to_trade_candle(
+                    exchange.clone(), 
+                    market_type.clone(), 
+                    symbol.clone(),
+                    timeframe as i32
+                );
                 
-                tracing::info!("Sending candle: {} {} @ {}", exchange, symbol, buffer.timestamp.format("%H:%M:%S"));
+                tracing::info!("Sending {}s candle: {} {} @ {}", 
+                    timeframe, exchange, symbol, buffer.timestamp.format("%H:%M:%S"));
                 if let Err(e) = self.candle_sender.send(candle).await {
                     error!("Failed to send trade candle: {}", e);
                 }
@@ -154,6 +193,8 @@ impl TradeCandleBuilder {
         }
         
         // 古いバッファを削除
-        self.buffers.retain(|_, buffer| buffer.timestamp > one_second_ago);
+        self.buffers.retain(|(_, _, _, tf), buffer| {
+            *tf != timeframe || buffer.timestamp > threshold
+        });
     }
 }

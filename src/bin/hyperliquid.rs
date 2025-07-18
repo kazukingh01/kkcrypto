@@ -42,6 +42,10 @@ struct Args {
     /// Raw message print frequency (default: 100, minimum: 2)
     #[arg(long, default_value = "100", value_parser = clap::value_parser!(u32).range(2..))]
     raw_freq: u32,
+
+    /// Timeframes to generate candles (comma-separated, e.g., 1m,5m,1h)
+    #[arg(short = 't', long, default_value = "1m")]
+    timeframes: String,
 }
 
 #[tokio::main]
@@ -86,14 +90,47 @@ async fn main() -> Result<()> {
         .map(|s| s.trim().to_string())
         .collect();
     
-    info!("Starting Hyperliquid {} trade collector with symbols: {:?}", market_type.as_str().to_uppercase(), symbols);
+    // Parse timeframes
+    let timeframes: Vec<u32> = args
+        .timeframes
+        .split(',')
+        .map(|s| {
+            let trimmed = s.trim();
+            // First try to parse as seconds
+            if let Ok(seconds) = trimmed.parse::<u32>() {
+                return seconds;
+            }
+            // Otherwise parse as time format
+            match trimmed {
+                "1s" => 1,
+                "5s" => 5,
+                "10s" => 10,
+                "30s" => 30,
+                "1m" => 60,
+                "5m" => 300,
+                "15m" => 900,
+                "30m" => 1800,
+                "1h" => 3600,
+                "2h" => 7200,
+                "4h" => 14400,
+                "1d" => 86400,
+                _ => {
+                    error!("Invalid timeframe: {}. Use seconds (e.g., 1,5,60) or format (e.g., 1s,5s,1m,5m,1h)", trimmed);
+                    std::process::exit(1);
+                }
+            }
+        })
+        .collect();
+    
+    info!("Starting Hyperliquid {} trade collector with symbols: {:?}, timeframes: {:?}", 
+          market_type.as_str().to_uppercase(), symbols, timeframes);
 
     // Create channels
     let (trade_tx, trade_rx) = mpsc::channel::<Trade>(1000);
     let (candle_tx, mut candle_rx) = mpsc::channel::<TradeCandle>(1000);
 
     // Start trade candle builder
-    let candle_builder = TradeCandleBuilder::new(trade_rx, candle_tx);
+    let candle_builder = TradeCandleBuilder::new(trade_rx, candle_tx, timeframes);
     tokio::spawn(async move {
         candle_builder.start().await;
     });
