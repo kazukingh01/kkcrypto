@@ -7,7 +7,8 @@ use mongodb::{
 };
 use polars::prelude::*;
 use std::collections::HashMap;
-use tracing::{error, info};
+use std::time::Instant;
+use tracing::error;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser, Debug)]
@@ -39,7 +40,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "correlation=info".into()),
+                .unwrap_or_else(|_| "info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -65,77 +66,68 @@ async fn main() -> Result<()> {
     let collection = db.collection::<Document>("candles_5s");
     println!("[STARTUP] Selected collection: candles_5s");
 
-    info!("Connected to MongoDB");
+    println!("Connected to MongoDB");
 
-    // Create correlation calculator
-    let mut calculator = CorrelationCalculator::new(
-        collection.clone(),
-        args.window_minutes,
-        args.min_data_points,
-    );
+    // Verify database connection
+    println!("[STARTUP] Verifying database connection...");
+    let test_filter = doc! { 
+        "unixtime": { "$gte": mongodb::bson::DateTime::from_millis(Utc::now().timestamp_millis() - 60000) }
+    };
+    match collection.find_one(test_filter).await {
+        Ok(Some(_)) => println!("[STARTUP] Database connection verified"),
+        Ok(None) => println!("[WARNING] No recent data found in database"),
+        Err(e) => {
+            println!("[ERROR] Failed to connect to database: {}", e);
+            return Err(e.into());
+        }
+    }
 
-    // Load initial data
-    info!("Loading initial {} minutes of data...", args.window_minutes);
-    calculator.load_initial_data().await?;
-
-    // Use polling approach
-    info!("Starting polling mode for candles_5s collection (interval: 5 seconds)...");
-    let mut last_processed_time = Utc::now();
+    // Use interval timer approach
+    println!("Starting interval timer mode (5 second intervals)...");
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
     
     loop {
-        // Wait for 5 seconds
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        // Wait for next tick
+        interval.tick().await;
         
-        let current_time = Utc::now();
+        // Create new calculator instance for stateless processing
+        let mut calculator = CorrelationCalculator::new(
+            collection.clone(),
+            args.window_minutes,
+            args.min_data_points,
+        );
         
-        // Query for new data since last processed time
-        let filter = doc! {
-            "unixtime": { 
-                "$gt": last_processed_time.timestamp_millis(),
-                "$lte": current_time.timestamp_millis()
+        // Load all data for the window period
+        let start_time = Instant::now();
+        match calculator.load_initial_data().await {
+            Ok(_) => {
+                let elapsed = start_time.elapsed();
+                println!("[TIMER] Data load and processing: {:?}", elapsed);
+                
+                // Calculate and print correlations
+                if let Some(ref df) = calculator.data_df {
+                    if df.width() > 2 { // timestamp + at least 2 price columns
+                        if let Err(e) = calculator.calculate_and_print_correlations() {
+                            error!("Error calculating correlations: {}", e);
+                        }
+                    }
+                }
             }
-        };
-        
-        info!("Polling candles_5s for new data from {} to {}", 
-            last_processed_time.format("%H:%M:%S"), 
-            current_time.format("%H:%M:%S"));
-        
-        let mut cursor = collection.find(filter).await?;
-        let mut processed_count = 0;
-        
-        while cursor.advance().await? {
-            let raw_doc = cursor.current();
-            let doc: Document = raw_doc.try_into()?;
-            
-            // Print raw data for debugging (only first few)
-            if processed_count < 3 {
-                println!("=== RAW CANDLE DATA ===");
-                println!("{}", serde_json::to_string_pretty(&doc).unwrap_or_else(|e| format!("JSON Error: {}", e)));
-                println!("========================");
-            }
-            
-            if let Err(e) = calculator.process_new_candle(doc).await {
-                error!("Error processing candle: {}", e);
-            } else {
-                processed_count += 1;
+            Err(e) => {
+                error!("Error loading data: {}", e);
             }
         }
-        
-        if processed_count > 0 {
-            info!("Processed {} new candles", processed_count);
-        } else {
-            info!("No new data found");
-        }
-        
-        last_processed_time = current_time;
     }
+    
+    #[allow(unreachable_code)]
+    Ok(())
 }
 
 struct CorrelationCalculator {
     collection: mongodb::Collection<Document>,
     window_minutes: u32,
     min_data_points: usize,
-    data_cache: HashMap<i32, DataFrame>, // symbol_id -> DataFrame
+    data_df: Option<DataFrame>, // Single DataFrame with all symbols
 }
 
 impl CorrelationCalculator {
@@ -148,41 +140,38 @@ impl CorrelationCalculator {
             collection,
             window_minutes,
             min_data_points,
-            data_cache: HashMap::new(),
+            data_df: None,
         }
     }
 
     async fn load_initial_data(&mut self) -> Result<()> {
-        let start_time = Utc::now() - Duration::minutes(self.window_minutes as i64);
+        let timer_start = Instant::now();
+        let now = Utc::now();
+        let start_time = now - Duration::minutes(self.window_minutes as i64);
         let start_time_ms = start_time.timestamp_millis();
         
-        info!("Loading data from {} ({}ms)", start_time.format("%Y-%m-%d %H:%M:%S"), start_time_ms);
+        println!("Current time: {} ({}ms)", now.format("%Y-%m-%d %H:%M:%S"), now.timestamp_millis());
+        println!("Loading data from {} ({}ms)", start_time.format("%Y-%m-%d %H:%M:%S"), start_time_ms);
         
-        // Query for all data in the window
+        // Query for all data in the window (using DateTime object)
         let filter = doc! {
-            "unixtime": { "$gte": start_time_ms }
+            "unixtime": { "$gte": mongodb::bson::DateTime::from_millis(start_time_ms) }
         };
         
-        info!("Executing find query with filter: {:?}", filter);
+        let query_start = Instant::now();
         let mut cursor = self.collection.find(filter).await?;
+        let query_elapsed = query_start.elapsed();
+        println!("[TIMER] MongoDB query execution: {:?}", query_elapsed);
         let mut data_by_symbol: HashMap<i32, Vec<(DateTime<Utc>, f64)>> = HashMap::new();
         let mut total_docs = 0;
         
         // Collect data by symbol
         while cursor.advance().await? {
             let raw_doc = cursor.current();
-            let doc: Document = raw_doc.try_into()?;
-            
-            // Print first few documents for debugging
-            if data_by_symbol.len() < 3 {
-                println!("=== RAW INITIAL DATA ===");
-                println!("{}", serde_json::to_string_pretty(&doc).unwrap_or_else(|e| format!("JSON Error: {}", e)));
-                println!("========================");
-            }
-            
+            let doc: Document = raw_doc.try_into()?;            
             if let (Ok(symbol_id), Ok(timestamp_ms)) = (
                 doc.get_document("metadata")?.get_i32("symbol"),
-                doc.get_i64("unixtime"),
+                doc.get_datetime("unixtime").map(|dt| dt.timestamp_millis()),
             ) {
                 // Get ask and bid prices
                 let ask_price = doc.get_f64("ask_price").ok();
@@ -205,171 +194,202 @@ impl CorrelationCalculator {
             }
         }
         
-        info!("Loaded {} documents for {} symbols", total_docs, data_by_symbol.len());
+        println!("Loaded {} documents for {} symbols", total_docs, data_by_symbol.len());
+        println!("Symbols loaded: {:?}", data_by_symbol.keys().collect::<Vec<_>>());
         if data_by_symbol.is_empty() {
             println!("WARNING: No data found in the last {} minutes!", self.window_minutes);
         }
         
-        // Convert to DataFrames with filled missing values
-        for (symbol_id, data) in data_by_symbol {
-            if let Ok(df) = self.create_filled_dataframe(data, start_time) {
-                self.data_cache.insert(symbol_id, df);
-            }
-        }
+        // Create unified DataFrame with all symbols
+        let end_time = Utc::now();
+        
+        // A. MongoDBデータからDataFrameを作成
+        let mongo_df = self.create_dataframe_from_mongo_data(data_by_symbol)?;
+        
+        // B. 時間軸を作成してjoin + forward fill
+        self.data_df = Some(self.create_filled_dataframe_with_timeaxis(mongo_df, start_time, end_time, 5)?);
+        
+        println!("Created unified DataFrame with {} symbols", 
+            self.data_df.as_ref().unwrap().width() - 1); // -1 for timestamp column
+        
+        let total_elapsed = timer_start.elapsed();
+        println!("[TIMER] Total initial data load time: {:?}", total_elapsed);
         
         Ok(())
     }
 
-    fn create_filled_dataframe(
+    // A. MongoDBデータからDataFrameを作成
+    fn create_dataframe_from_mongo_data(
         &self,
-        data: Vec<(DateTime<Utc>, f64)>,
-        start_time: DateTime<Utc>,
+        data_by_symbol: HashMap<i32, Vec<(DateTime<Utc>, f64)>>,
     ) -> Result<DataFrame> {
-        // Create time series with 5-second intervals
-        let end_time = Utc::now();
-        let mut timestamps = vec![];
-        let mut current = start_time;
+        let mut all_rows = Vec::new();
         
-        while current <= end_time {
-            timestamps.push(current.timestamp_millis());
-            current = current + Duration::seconds(5);
+        for (symbol_id, data) in data_by_symbol {
+            println!("Processing symbol {}: {} data points", symbol_id, data.len());
+            
+            for (timestamp, price) in data {
+                all_rows.push((timestamp.timestamp_millis(), symbol_id, price));
+            }
         }
         
-        // Create DataFrame with all timestamps
-        let timestamp_series = Series::new("timestamp", timestamps.clone());
-        let base_df = DataFrame::new(vec![timestamp_series])?;
+        if all_rows.is_empty() {
+            return Ok(DataFrame::empty());
+        }
         
-        // Create DataFrame from actual data
-        let data_timestamps: Vec<i64> = data.iter().map(|(t, _)| t.timestamp_millis()).collect();
-        let data_prices: Vec<f64> = data.iter().map(|(_, p)| *p).collect();
+        // Sort by timestamp
+        all_rows.sort_by_key(|(ts, _, _)| *ts);
         
-        let data_df = DataFrame::new(vec![
-            Series::new("timestamp", data_timestamps),
-            Series::new("price", data_prices),
+        let timestamps: Vec<i64> = all_rows.iter().map(|(ts, _, _)| *ts).collect();
+        let symbol_ids: Vec<i32> = all_rows.iter().map(|(_, sid, _)| *sid).collect();
+        let prices: Vec<f64> = all_rows.iter().map(|(_, _, p)| *p).collect();
+        
+        Ok(DataFrame::new(vec![
+            Series::new("timestamp".into(), timestamps).into(),
+            Series::new("symbol_id".into(), symbol_ids).into(),
+            Series::new("price".into(), prices).into(),
+        ])?)
+    }
+    
+    // B. 時間軸を作成してjoin + forward fill
+    fn create_filled_dataframe_with_timeaxis(
+        &self,
+        data_df: DataFrame,
+        start_time: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+        interval_seconds: i64,
+    ) -> Result<DataFrame> {
+        // Align timestamps
+        let start_millis = start_time.timestamp_millis();
+        let interval_millis = interval_seconds * 1000;
+        let aligned_start_millis = (start_millis / interval_millis) * interval_millis;
+        let aligned_start = DateTime::from_timestamp_millis(aligned_start_millis).unwrap();
+        
+        let end_millis = end_time.timestamp_millis();
+        let aligned_end_millis = ((end_millis + interval_millis - 1) / interval_millis) * interval_millis;
+        let aligned_end = DateTime::from_timestamp_millis(aligned_end_millis).unwrap();
+        
+        // Create complete time series
+        let mut timestamps = vec![];
+        let mut current = aligned_start;
+        while current <= aligned_end {
+            timestamps.push(current.timestamp_millis());
+            current = current + Duration::seconds(interval_seconds);
+        }
+        
+        // Create base time DataFrame
+        let base_time_df = DataFrame::new(vec![
+            Series::new("timestamp".into(), timestamps.clone()).into()
         ])?;
         
-        // Join and forward fill missing values
-        let joined = base_df
-            .join(
-                &data_df,
+        if data_df.is_empty() {
+            return Ok(base_time_df);
+        }
+        
+        // Get unique symbol_ids from data
+        let symbol_ids: Vec<i32> = data_df.column("symbol_id")?
+            .i32()?
+            .into_no_null_iter()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        
+        // Pivot data to wide format (timestamp -> symbol columns)
+        let mut result_columns: Vec<Column> = vec![
+            Series::new("timestamp".into(), timestamps.clone()).into()
+        ];
+        
+        for symbol_id in symbol_ids {
+            // Filter data for this symbol and remove duplicates
+            let symbol_data = data_df.clone().lazy()
+                .filter(col("symbol_id").eq(lit(symbol_id)))
+                .select([col("timestamp"), col("price")])
+                .group_by([col("timestamp")])
+                .agg([col("price").first()]) // 重複タイムスタンプがある場合は最初の値を採用
+                .collect()?;
+            
+            // Join with base time
+            let joined = base_time_df.join(
+                &symbol_data,
                 ["timestamp"],
                 ["timestamp"],
                 JoinArgs::new(JoinType::Left),
+                None,
             )?;
-        
-        // Forward fill missing values
-        let filled = joined
-            .lazy()
-            .with_column(col("price").forward_fill(None))
-            .collect()?;
-        
-        Ok(filled)
-    }
-
-    async fn process_new_candle(&mut self, candle: Document) -> Result<()> {
-        // Extract candle data
-        let symbol_id = candle.get_document("metadata")?.get_i32("symbol")?;
-        let timestamp_ms = candle.get_i64("unixtime")?;
-        let timestamp = DateTime::from_timestamp_millis(timestamp_ms).unwrap();
-        
-        // Get ask and bid prices
-        let ask_price = candle.get_f64("ask_price").ok();
-        let bid_price = candle.get_f64("bid_price").ok();
-        
-        // Calculate average price (mid price)
-        let price = match (ask_price, bid_price) {
-            (Some(ask), Some(bid)) => (ask + bid) / 2.0,
-            (Some(ask), None) => ask,
-            (None, Some(bid)) => bid,
-            (None, None) => {
-                info!("Skipping candle with no price data: symbol_id={}", symbol_id);
-                return Ok(());
+            
+            // Assert: join結果の行数が基軸の時間軸と一致することを確認
+            let base_height = base_time_df.height();
+            let joined_height = joined.height();
+            if base_height != joined_height {
+                println!("ERROR: Join mismatch for symbol_{}:", symbol_id);
+                println!("  Base time axis: {} rows", base_height);
+                println!("  Symbol data: {} rows", symbol_data.height());
+                println!("  Joined result: {} rows", joined_height);
+                
+                // デバッグ: symbol_dataの重複チェック
+                let unique_timestamps = symbol_data.column("timestamp")?
+                    .unique()?
+                    .len();
+                println!("  Symbol data unique timestamps: {}", unique_timestamps);
+                
+                panic!("Join assertion failed: base_height({}) != joined_height({})", 
+                    base_height, joined_height);
             }
-        };
-        
-        info!(
-            "New candle: symbol_id={}, time={}, price={:.2} (ask={:?}, bid={:?})",
-            symbol_id,
-            timestamp.format("%H:%M:%S"),
-            price,
-            ask_price,
-            bid_price
-        );
-        
-        // Update cache for this symbol
-        self.update_symbol_data(symbol_id, timestamp, price)?;
-        
-        // Calculate correlations if we have enough symbols
-        if self.data_cache.len() >= 2 {
-            self.calculate_and_print_correlations()?;
+            
+            // Get price column and add to result
+            let price_series = joined.column("price")?.clone();
+            let column_name = format!("symbol_{}", symbol_id);
+            result_columns.push(price_series.with_name(column_name.as_str().into()).into());
         }
         
-        Ok(())
-    }
-
-    fn update_symbol_data(
-        &mut self,
-        symbol_id: i32,
-        timestamp: DateTime<Utc>,
-        price: f64,
-    ) -> Result<()> {
-        // Add new data point or create new DataFrame
-        let cutoff_time = Utc::now() - Duration::minutes(self.window_minutes as i64);
+        let mut result_df = DataFrame::new(result_columns)?;
         
-        if let Some(df) = self.data_cache.get_mut(&symbol_id) {
-            // Append new row and remove old data
-            // (Implementation depends on Polars version)
-            // For now, recreate DataFrame
-            let mut timestamps: Vec<i64> = df.column("timestamp")?.i64()?.into_no_null_iter().collect();
-            let mut prices: Vec<f64> = df.column("price")?.f64()?.into_no_null_iter().collect();
-            
-            timestamps.push(timestamp.timestamp_millis());
-            prices.push(price);
-            
-            // Filter old data
-            let cutoff_ms = cutoff_time.timestamp_millis();
-            let filtered: Vec<(i64, f64)> = timestamps
-                .into_iter()
-                .zip(prices.into_iter())
-                .filter(|(t, _)| *t >= cutoff_ms)
-                .collect();
-            
-            let new_df = DataFrame::new(vec![
-                Series::new("timestamp", filtered.iter().map(|(t, _)| *t).collect::<Vec<_>>()),
-                Series::new("price", filtered.iter().map(|(_, p)| *p).collect::<Vec<_>>()),
-            ])?;
-            
-            *df = new_df;
-        } else {
-            // Create new DataFrame for this symbol
-            let df = DataFrame::new(vec![
-                Series::new("timestamp", vec![timestamp.timestamp_millis()]),
-                Series::new("price", vec![price]),
-            ])?;
-            self.data_cache.insert(symbol_id, df);
+        // Forward fill all symbol columns
+        let symbol_columns: Vec<String> = result_df.get_column_names()
+            .iter()
+            .filter(|name| name.starts_with("symbol_"))
+            .map(|s| s.to_string())
+            .collect();
+        
+        for col_name in &symbol_columns {
+            result_df = result_df.lazy()
+                .with_columns([
+                    col(col_name).fill_null_with_strategy(FillNullStrategy::Forward(None))
+                ])
+                .collect()?;
         }
         
-        Ok(())
+        // Show null counts after forward fill
+        let mut null_info = vec![];
+        for col_name in &symbol_columns {
+            let null_count = result_df.column(col_name)?.null_count();
+            null_info.push(format!("{}:{}", col_name, null_count));
+        }
+        println!("Null counts after forward fill: {}", null_info.join(", "));
+        
+        Ok(result_df)
     }
 
     fn calculate_and_print_correlations(&self) -> Result<()> {
-        let symbol_ids: Vec<&i32> = self.data_cache.keys().collect();
-        
-        println!("\n=== Correlation Matrix ===");
-        println!("Symbols: {:?}", symbol_ids);
-        
-        // Calculate pairwise correlations
-        for i in 0..symbol_ids.len() {
-            for j in i + 1..symbol_ids.len() {
-                let symbol1 = *symbol_ids[i];
-                let symbol2 = *symbol_ids[j];
-                
-                if let (Some(df1), Some(df2)) = (
-                    self.data_cache.get(&symbol1),
-                    self.data_cache.get(&symbol2),
-                ) {
-                    // Align DataFrames by timestamp and calculate correlation
-                    if let Ok(correlation) = self.calculate_correlation(df1, df2) {
+        if let Some(ref df) = self.data_df {
+            let symbol_columns: Vec<String> = df.get_column_names()
+                .iter()
+                .filter(|name| name.starts_with("symbol_"))
+                .map(|s| s.to_string())
+                .collect();
+            
+            println!("\n=== Correlation Matrix ===");
+            println!("Symbols: {:?}", symbol_columns);
+            
+            // Calculate pairwise correlations
+            for i in 0..symbol_columns.len() {
+                for j in i + 1..symbol_columns.len() {
+                    let col1 = &symbol_columns[i];
+                    let col2 = &symbol_columns[j];
+                    
+                    if let Ok(correlation) = self.calculate_correlation_unified(df, col1, col2) {
+                        let symbol1 = col1.replace("symbol_", "");
+                        let symbol2 = col2.replace("symbol_", "");
                         println!(
                             "Correlation between {} and {}: {:.4}",
                             symbol1, symbol2, correlation
@@ -382,55 +402,38 @@ impl CorrelationCalculator {
         Ok(())
     }
 
-    fn calculate_correlation(&self, df1: &DataFrame, df2: &DataFrame) -> Result<f64> {
-        // Rename columns in df2 to avoid conflicts
-        let df2_renamed = df2.clone().lazy()
-            .rename(["price"], ["price_right"])
+    fn calculate_correlation_unified(&self, df: &DataFrame, col1: &str, col2: &str) -> Result<f64> {
+        // Select only the two columns and drop nulls
+        let correlation_df = df.select([col1, col2])?
+            .lazy()
+            .drop_nulls(None)
             .collect()?;
         
-        // Join DataFrames on timestamp
-        let joined = df1.join(
-            &df2_renamed,
-            ["timestamp"],
-            ["timestamp"],
-            JoinArgs::new(JoinType::Inner),
-        )?;
-        
-        // Get price columns
-        let prices1 = joined.column("price")?.f64()?;
-        let prices2 = joined.column("price_right")?.f64()?;
-        
-        // Calculate correlation
-        if prices1.len() >= self.min_data_points {
-            // Calculate correlation manually
-            let prices1_vec: Vec<f64> = prices1.into_no_null_iter().collect();
-            let prices2_vec: Vec<f64> = prices2.into_no_null_iter().collect();
-            let correlation = calculate_pearson_correlation(&prices1_vec, &prices2_vec);
-            Ok(correlation)
-        } else {
-            Ok(f64::NAN)
+        if correlation_df.height() < self.min_data_points {
+            println!("  Insufficient data points: {} (need {})", correlation_df.height(), self.min_data_points);
+            return Ok(f64::NAN);
         }
-    }
-}
-
-fn calculate_pearson_correlation(x: &[f64], y: &[f64]) -> f64 {
-    if x.len() != y.len() || x.is_empty() {
-        return f64::NAN;
-    }
-    
-    let n = x.len() as f64;
-    let sum_x: f64 = x.iter().sum();
-    let sum_y: f64 = y.iter().sum();
-    let sum_xy: f64 = x.iter().zip(y.iter()).map(|(a, b)| a * b).sum();
-    let sum_x2: f64 = x.iter().map(|a| a * a).sum();
-    let sum_y2: f64 = y.iter().map(|b| b * b).sum();
-    
-    let numerator = n * sum_xy - sum_x * sum_y;
-    let denominator = ((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y)).sqrt();
-    
-    if denominator == 0.0 {
-        f64::NAN
-    } else {
-        numerator / denominator
+        
+        // Convert to ndarray and calculate correlation
+        match correlation_df.to_ndarray::<Float64Type>(IndexOrder::Fortran) {
+            Ok(array) => {
+                use ndarray_stats::CorrelationExt;
+                let transposed = array.t();
+                match transposed.pearson_correlation() {
+                    Ok(corr_matrix) => {
+                        let correlation = corr_matrix[[0, 1]];
+                        Ok(correlation)
+                    },
+                    Err(e) => {
+                        println!("  Correlation calculation error: {:?}", e);
+                        Ok(f64::NAN)
+                    }
+                }
+            },
+            Err(e) => {
+                println!("  Failed to convert DataFrame to ndarray: {}", e);
+                Ok(f64::NAN)
+            }
+        }
     }
 }
