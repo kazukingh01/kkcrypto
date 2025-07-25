@@ -161,6 +161,24 @@ for process_def in "${PROCESSES[@]}"; do
         if kill -0 "$pid" 2>/dev/null; then
             # プロセスは生きている
             echo "Process $name (PID: $pid) is running"
+            
+            # ログファイルの最終更新をチェック
+            log_file="logs/${name}.log"
+            if [[ -f "$log_file" ]]; then
+                last_modified=$(stat -c %Y "$log_file" 2>/dev/null || stat -f %m "$log_file" 2>/dev/null)
+                current_time=$(date +%s)
+                time_diff=$((current_time - last_modified))
+                
+                # 30秒以上更新されていない場合
+                if [[ $time_diff -gt 30 ]]; then
+                    echo "Process $name (PID: $pid) seems stuck (no log update for ${time_diff}s)"
+                    log_msg "Process $name (PID: $pid) stuck - no log update for ${time_diff}s. Restarting..."
+                    kill "$pid"
+                    restart_process "$name" "$pidfile" "$command"
+                    continue
+                fi
+            fi
+            
             continue
         else
             # プロセスが死んでいる
