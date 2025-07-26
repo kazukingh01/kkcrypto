@@ -78,13 +78,13 @@ log_msg() {
 
 # プロセス定義 (name:pidfile:command)
 PROCESSES=(
-    "bybit_spot:pids/bybit_spot.pid:./target/debug/bybit                       --raw-freq 100 -t 1,5 --spot    $UPDATE_FLAG --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT"
-    "bybit_linear:pids/bybit_linear.pid:./target/debug/bybit                   --raw-freq 100 -t 1,5 --linear  $UPDATE_FLAG --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT"
-    "bybit_inverse:pids/bybit_inverse.pid:./target/debug/bybit                 --raw-freq 100 -t 1,5 --inverse $UPDATE_FLAG --symbols BTCUSD,ETHUSD,XRPUSD,SOLUSD"
-    "binance_spot:pids/binance_spot.pid:./target/debug/binance                 --raw-freq 100 -t 1,5 --spot    $UPDATE_FLAG --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT"
-    "binance_linear:pids/binance_linear.pid:./target/debug/binance             --raw-freq 100 -t 1,5 --linear  $UPDATE_FLAG --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT"
-    "binance_inverse:pids/binance_inverse.pid:./target/debug/binance           --raw-freq 100 -t 1,5 --inverse $UPDATE_FLAG --symbols BTCUSD_PERP,ETHUSD_PERP,XRPUSD_PERP,BNBUSD_PERP,SOLUSD_PERP"
-    "hyperliquid_linear:pids/hyperliquid_linear.pid:./target/debug/hyperliquid --raw-freq 100 -t 1,5 --linear  $UPDATE_FLAG --symbols BTC,ETH,XRP,BNB,SOL,HYPE"
+    "bybit_spot:pids/bybit_spot.pid:./target/debug/bybit                       --raw-freq 100 -t 5,10,60 --spot    $UPDATE_FLAG --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT"
+    "bybit_linear:pids/bybit_linear.pid:./target/debug/bybit                   --raw-freq 100 -t 5,10,60 --linear  $UPDATE_FLAG --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT"
+    "bybit_inverse:pids/bybit_inverse.pid:./target/debug/bybit                 --raw-freq 100 -t 5,10,60 --inverse $UPDATE_FLAG --symbols BTCUSD,ETHUSD,XRPUSD,SOLUSD"
+    "binance_spot:pids/binance_spot.pid:./target/debug/binance                 --raw-freq 100 -t 5,10,60 --spot    $UPDATE_FLAG --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT"
+    "binance_linear:pids/binance_linear.pid:./target/debug/binance             --raw-freq 100 -t 5,10,60 --linear  $UPDATE_FLAG --symbols BTCUSDT,ETHUSDT,XRPUSDT,BNBUSDT,SOLUSDT"
+    "binance_inverse:pids/binance_inverse.pid:./target/debug/binance           --raw-freq 100 -t 5,10,60 --inverse $UPDATE_FLAG --symbols BTCUSD_PERP,ETHUSD_PERP,XRPUSD_PERP,BNBUSD_PERP,SOLUSD_PERP"
+    "hyperliquid_linear:pids/hyperliquid_linear.pid:./target/debug/hyperliquid --raw-freq 100 -t 5,10,60 --linear  $UPDATE_FLAG --symbols BTC,ETH,XRP,BNB,SOL,HYPE"
 )
 
 restart_process() {

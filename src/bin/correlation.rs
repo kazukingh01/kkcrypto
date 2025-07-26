@@ -6,6 +6,7 @@ use mongodb::{
     Client,
 };
 use polars::prelude::*;
+use polars::lazy::dsl::pearson_corr;
 use std::collections::HashMap;
 use std::time::Instant;
 use tracing::error;
@@ -26,6 +27,10 @@ struct Args {
     /// Minimum data points required for correlation (default: 300)
     #[arg(short = 'm', long, default_value = "300")]
     min_data_points: usize,
+
+    /// Correlation calculation interval in seconds (default: 5)
+    #[arg(short = 'i', long, default_value = "5")]
+    interval: u64,
 }
 
 #[tokio::main]
@@ -63,8 +68,10 @@ async fn main() -> Result<()> {
     println!("[STARTUP] Connected to MongoDB client");
     let db = client.database("trade");
     println!("[STARTUP] Selected database: trade");
-    let collection = db.collection::<Document>("candles_5s");
-    println!("[STARTUP] Selected collection: candles_5s");
+    // Select collection based on interval
+    let collection_name = format!("candles_{}s", args.interval);
+    let collection = db.collection::<Document>(&collection_name);
+    println!("[STARTUP] Selected collection: {}", collection_name);
 
     println!("Connected to MongoDB");
 
@@ -83,8 +90,8 @@ async fn main() -> Result<()> {
     }
 
     // Use interval timer approach
-    println!("Starting interval timer mode (5 second intervals)...");
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+    println!("Starting interval timer mode ({} second intervals)...", args.interval);
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(args.interval));
     
     loop {
         // Wait for next tick
@@ -94,7 +101,7 @@ async fn main() -> Result<()> {
         let mut calculator = CorrelationCalculator::new(
             collection.clone(),
             args.window_minutes,
-            args.min_data_points,
+            args.interval as i64,
         );
         
         // Load all data for the window period
@@ -126,7 +133,7 @@ async fn main() -> Result<()> {
 struct CorrelationCalculator {
     collection: mongodb::Collection<Document>,
     window_minutes: u32,
-    min_data_points: usize,
+    interval_seconds: i64,
     data_df: Option<DataFrame>, // Single DataFrame with all symbols
 }
 
@@ -134,12 +141,12 @@ impl CorrelationCalculator {
     fn new(
         collection: mongodb::Collection<Document>,
         window_minutes: u32,
-        min_data_points: usize,
+        interval_seconds: i64,
     ) -> Self {
         Self {
             collection,
             window_minutes,
-            min_data_points,
+            interval_seconds,
             data_df: None,
         }
     }
@@ -207,7 +214,7 @@ impl CorrelationCalculator {
         let mongo_df = self.create_dataframe_from_mongo_data(data_by_symbol)?;
         
         // B. 時間軸を作成してjoin + forward fill
-        self.data_df = Some(self.create_filled_dataframe_with_timeaxis(mongo_df, start_time, end_time, 5)?);
+        self.data_df = Some(self.create_filled_dataframe_with_timeaxis(mongo_df, start_time, end_time, self.interval_seconds)?);
         
         println!("Created unified DataFrame with {} symbols", 
             self.data_df.as_ref().unwrap().width() - 1); // -1 for timestamp column
@@ -262,11 +269,11 @@ impl CorrelationCalculator {
         // Align timestamps
         let start_millis = start_time.timestamp_millis();
         let interval_millis = interval_seconds * 1000;
-        let aligned_start_millis = (start_millis / interval_millis) * interval_millis;
+        let aligned_start_millis = (start_millis / interval_millis) * interval_millis + interval_millis;
         let aligned_start = DateTime::from_timestamp_millis(aligned_start_millis).unwrap();
         
         let end_millis = end_time.timestamp_millis();
-        let aligned_end_millis = ((end_millis + interval_millis - 1) / interval_millis) * interval_millis;
+        let aligned_end_millis = (end_millis / interval_millis) * interval_millis;
         let aligned_end = DateTime::from_timestamp_millis(aligned_end_millis).unwrap();
         
         // Create complete time series
@@ -381,19 +388,44 @@ impl CorrelationCalculator {
             println!("\n=== Correlation Matrix ===");
             println!("Symbols: {:?}", symbol_columns);
             
-            // Calculate pairwise correlations
+            // Generate all pair correlation expressions
+            let mut correlation_exprs = Vec::new();
+            let mut pair_names = Vec::new();
+            
             for i in 0..symbol_columns.len() {
                 for j in i + 1..symbol_columns.len() {
                     let col1 = &symbol_columns[i];
                     let col2 = &symbol_columns[j];
+                    let alias_name = format!("corr_{}_{}", 
+                        col1.replace("symbol_", ""), 
+                        col2.replace("symbol_", ""));
                     
-                    if let Ok(correlation) = self.calculate_correlation_unified(df, col1, col2) {
-                        let symbol1 = col1.replace("symbol_", "");
-                        let symbol2 = col2.replace("symbol_", "");
-                        println!(
-                            "Correlation between {} and {}: {:.4}",
-                            symbol1, symbol2, correlation
-                        );
+                    correlation_exprs.push(
+                        pearson_corr(col(col1), col(col2)).alias(&alias_name)
+                    );
+                    pair_names.push((col1.clone(), col2.clone(), alias_name));
+                }
+            }
+            
+            // Calculate all correlations in one lazy operation
+            if !correlation_exprs.is_empty() {
+                let correlations = df.clone()
+                    .lazy()
+                    .select(correlation_exprs)
+                    .collect()?;
+                
+                // Print results
+                for (col1, col2, alias_name) in pair_names {
+                    match correlations.column(&alias_name)?.f64()?.get(0) {
+                        Some(corr) => {
+                            let symbol1 = col1.replace("symbol_", "");
+                            let symbol2 = col2.replace("symbol_", "");
+                            println!("Correlation between {} and {}: {:.4}", symbol1, symbol2, corr);
+                        },
+                        None => {
+                            println!("Failed to calculate correlation for {} and {}", 
+                                col1.replace("symbol_", ""), col2.replace("symbol_", ""));
+                        }
                     }
                 }
             }
@@ -402,38 +434,4 @@ impl CorrelationCalculator {
         Ok(())
     }
 
-    fn calculate_correlation_unified(&self, df: &DataFrame, col1: &str, col2: &str) -> Result<f64> {
-        // Select only the two columns and drop nulls
-        let correlation_df = df.select([col1, col2])?
-            .lazy()
-            .drop_nulls(None)
-            .collect()?;
-        
-        if correlation_df.height() < self.min_data_points {
-            println!("  Insufficient data points: {} (need {})", correlation_df.height(), self.min_data_points);
-            return Ok(f64::NAN);
-        }
-        
-        // Convert to ndarray and calculate correlation
-        match correlation_df.to_ndarray::<Float64Type>(IndexOrder::Fortran) {
-            Ok(array) => {
-                use ndarray_stats::CorrelationExt;
-                let transposed = array.t();
-                match transposed.pearson_correlation() {
-                    Ok(corr_matrix) => {
-                        let correlation = corr_matrix[[0, 1]];
-                        Ok(correlation)
-                    },
-                    Err(e) => {
-                        println!("  Correlation calculation error: {:?}", e);
-                        Ok(f64::NAN)
-                    }
-                }
-            },
-            Err(e) => {
-                println!("  Failed to convert DataFrame to ndarray: {}", e);
-                Ok(f64::NAN)
-            }
-        }
-    }
 }

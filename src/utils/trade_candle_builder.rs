@@ -65,9 +65,9 @@ impl TradeCandleBuffer {
     }
 
     fn to_trade_candle(&self, exchange: String, market_type: MarketType, symbol: String, period_seconds: i32) -> TradeCandle {
-        // タイムスタンプを時間枠の開始時刻に正規化
+        // タイムスタンプを時間枠の開始時刻に正規化（切り上げ）
         let seconds_since_epoch = self.timestamp.timestamp();
-        let candle_start = (seconds_since_epoch / period_seconds as i64) * period_seconds as i64;
+        let candle_start = (seconds_since_epoch / period_seconds as i64) * period_seconds as i64 + period_seconds as i64;
         let normalized_timestamp = DateTime::from_timestamp(candle_start, 0).unwrap();
         
         TradeCandle {
@@ -172,7 +172,7 @@ impl TradeCandleBuilder {
 
     fn get_candle_timestamp(&self, timestamp: &DateTime<Utc>, timeframe_seconds: u32) -> DateTime<Utc> {
         let seconds_since_epoch = timestamp.timestamp();
-        let candle_start = (seconds_since_epoch / timeframe_seconds as i64) * timeframe_seconds as i64;
+        let candle_start = (seconds_since_epoch / timeframe_seconds as i64) * timeframe_seconds as i64 + timeframe_seconds as i64;
         DateTime::from_timestamp(candle_start, 0).unwrap()
     }
 

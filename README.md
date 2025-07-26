@@ -29,7 +29,9 @@ cd && mongosh admin -u "admin" -p `cat ~/passmongo.txt` --port ${PORTMS} --eval 
 
 ```bash
 mongosh admin -u "admin" -p `cat ~/passmongo.txt` --port ${PORTMS} --eval 'sh.enableSharding("trade");'
-mongosh admin -u "admin" -p `cat ~/passmongo.txt` --port ${PORTMS} --eval 'sh.shardCollection("trade.candles_1s", {"metadata": 1});'
+# There are run in schema.mongo.js
+# sh.shardCollection("trade.candles_1s", {"metadata": 1});
+# sh.shardCollection("trade.candles_5s", {"metadata": 1});
 ```
 
 # HyperLiquid
